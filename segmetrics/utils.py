@@ -22,3 +22,28 @@ def _check_label_array(y, name=None, check_sequential=False):
     elif y.min() < 0:
         raise ValueError(err_msg)
     return True
+
+def _safe_divide(numerator, denominator, eps=1e-10):
+    """
+    Safely divide two numbers or arrays, returning 0 where the denominator is zero.
+
+    Parameters
+    ----------
+    numerator : float or ndarray
+        The numerator in the division.
+    denominator : float or ndarray
+        The denominator in the division.
+    eps : float, optional
+        A small epsilon to avoid division by zero (default is 1e-10).
+
+    Returns
+    -------
+    float or ndarray
+        The result of numerator / denominator, or 0 where the denominator is zero.
+    """
+    if np.isscalar(denominator):
+        return numerator / denominator if abs(denominator) > eps else 0.0
+    else:
+        result = np.zeros_like(denominator, dtype=np.float64)
+        np.divide(numerator, denominator, out=result, where=np.abs(denominator) > eps)
+        return result

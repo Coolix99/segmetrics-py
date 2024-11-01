@@ -39,7 +39,6 @@ def match_labels(y_true, y_pred, method="1:1", criterion="iou", thresh=0.5):
     
     # Ignore background
     scores = scores[1:, 1:]  # Remove background from consideration
-    n_true, n_pred = scores.shape
 
     if method == "1:1":
         return _match_1_to_1(scores, thresh)
