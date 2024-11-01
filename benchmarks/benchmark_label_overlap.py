@@ -14,7 +14,7 @@ def benchmark_label_overlap(method):
     print("Warming up...")
     x = generate_random_labels((100, 100), num_labels)
     y = generate_random_labels((100, 100), num_labels)
-    label_overlap(x, y)  # Run once to allow Numba compilation
+    label_overlap(x, y,method=method)  # Run once to allow Numba compilation
 
     print("Benchmarking label_overlap with increasing data sizes")
     print("Size\t\tTotal Pixels\tTime (s)")
@@ -37,9 +37,9 @@ def benchmark_label_overlap_label_count(method):
 
     # Warm-up to compile with Numba
     print("Warming up...")
-    x = generate_random_labels(fixed_size, 10)
-    y = generate_random_labels(fixed_size, 10)
-    label_overlap(x, y)  # Run once to allow Numba compilation
+    x = generate_random_labels(100, 10)
+    y = generate_random_labels(100, 10)
+    label_overlap(x, y,method=method)  # Run once to allow Numba compilation
 
     print("Benchmarking label_overlap with increasing label counts")
     print("Labels\t\tTime (s)")
@@ -56,6 +56,6 @@ def benchmark_label_overlap_label_count(method):
         print(f"{num_labels}\t\t{end_time - start_time:.4f} seconds")
 
 if __name__ == "__main__":
-    method='torch'
+    method='numba'
     benchmark_label_overlap(method)
     benchmark_label_overlap_label_count(method)

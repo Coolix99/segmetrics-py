@@ -1,64 +1,11 @@
 import numpy as np
-from numba import jit
-from segmetrics.utils import _check_label_array
-
-def label_overlap(x, y, check=True):
-    """
-    Compute the overlap matrix between two label images `x` and `y`.
-
-    Parameters
-    ----------
-    x : ndarray
-        First label image, where each unique integer represents a different object.
-    y : ndarray
-        Second label image, where each unique integer represents a different object.
-    check : bool, optional
-        If True, checks that `x` and `y` are valid label images with sequential non-negative integers.
-    
-    Returns
-    -------
-    ndarray
-        A 2D array where entry (i, j) is the number of pixels where label i in `x`
-        overlaps with label j in `y`.
-    """
-    if check:
-        _check_label_array(x, 'x', check_sequential=True)
-        _check_label_array(y, 'y', check_sequential=True)
-        
-        if x.shape != y.shape:
-            raise ValueError("x and y must have the same shape")
-    
-    return _label_overlap(x, y)
-
-@jit(nopython=True)
-def _label_overlap(x, y):
-    """
-    Internal function to calculate overlap between two flattened label images.
-    
-    Parameters
-    ----------
-    x : ndarray
-        Flattened version of the first label image.
-    y : ndarray
-        Flattened version of the second label image.
-    
-    Returns
-    -------
-    ndarray
-        Overlap matrix where each entry (i, j) is the count of pixels where label i in `x`
-        overlaps with label j in `y`.
-    """
-    x = x.ravel()
-    y = y.ravel()
-    overlap = np.zeros((1 + x.max(), 1 + y.max()), dtype=np.uint32)
-    for i in range(len(x)):
-        overlap[x[i], y[i]] += 1
-    return overlap
-# overlap.py
-import numpy as np
 from numba import jit, prange
-from concurrent.futures import ThreadPoolExecutor
 from segmetrics.utils import _check_label_array
+
+try:
+    from numba import cuda
+except:
+    cuda = None
 
 try:
     import cupy as cp
@@ -70,15 +17,6 @@ try:
 except ImportError:
     torch = None
 
-@jit(nopython=True)
-def _label_overlap_numba(x, y):
-    """Numba JIT-compiled version of label overlap."""
-    x = x.ravel()
-    y = y.ravel()
-    overlap = np.zeros((1 + x.max(), 1 + y.max()), dtype=np.uint32)
-    for i in range(len(x)):
-        overlap[x[i], y[i]] += 1
-    return overlap
 
 def label_overlap(x, y, check=True, method="numba"):
     """
@@ -93,7 +31,7 @@ def label_overlap(x, y, check=True, method="numba"):
     check : bool, optional
         If True, checks that `x` and `y` are valid label images with sequential non-negative integers.
     method : str, optional
-        Method to use for calculating overlap ('numba', 'numpy', 'numpy_threaded', 'numba_threaded', 'cupy', 'cuda').
+        Method to use for calculating overlap ('numba', 'numpy', 'numba_threaded', 'cupy', 'cuda', 'torch').
     
     Returns
     -------
@@ -112,13 +50,11 @@ def label_overlap(x, y, check=True, method="numba"):
         return _label_overlap_numba(x, y)
     elif method == "numpy":
         return _label_overlap_numpy(x, y)
-    elif method == "numpy_threaded":
-        return _label_overlap_numpy_threaded(x, y)
     elif method == "numba_threaded":
         return _label_overlap_numba_threaded(x, y)
     elif method == "cupy" and cp is not None:
         return _label_overlap_cupy(x, y)
-    elif method == "cuda":
+    elif method == "cuda" and cuda is not None:
         return _label_overlap_cuda(x, y)
     elif method == "torch" and torch is not None:
         return _label_overlap_torch(x, y)
@@ -167,34 +103,6 @@ def _label_overlap_numpy(x, y):
         overlap[xi, yi] += 1
     return overlap
 
-# NumPy with Multi-threading
-def _label_overlap_numpy_threaded(x, y):
-    x = x.ravel()
-    y = y.ravel()
-    max_x = x.max() + 1
-    max_y = y.max() + 1
-    overlap = np.zeros((max_x, max_y), dtype=np.uint32)
-
-    def process_range(start, end):
-        local_overlap = np.zeros_like(overlap)
-        for i in range(start, end):
-            local_overlap[x[i], y[i]] += 1
-        return local_overlap
-
-    # Split work among threads
-    num_threads = 8  # Adjust based on system
-    chunk_size = len(x) // num_threads
-    ranges = [(i * chunk_size, (i + 1) * chunk_size) for i in range(num_threads)]
-    ranges[-1] = (ranges[-1][0], len(x))  # Last chunk goes to the end
-
-    with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        results = executor.map(lambda r: process_range(*r), ranges)
-
-    # Aggregate results
-    for res in results:
-        overlap += res
-    return overlap
-
 # Multi-threaded Numba Version
 @jit(nopython=True, parallel=True)
 def _label_overlap_numba_threaded(x, y):
@@ -202,6 +110,16 @@ def _label_overlap_numba_threaded(x, y):
     y = y.ravel()
     overlap = np.zeros((1 + x.max(), 1 + y.max()), dtype=np.uint32)
     for i in prange(len(x)):
+        overlap[x[i], y[i]] += 1
+    return overlap
+
+@jit(nopython=True)
+def _label_overlap_numba(x, y):
+    """Numba JIT-compiled version of label overlap."""
+    x = x.ravel()
+    y = y.ravel()
+    overlap = np.zeros((1 + x.max(), 1 + y.max()), dtype=np.uint32)
+    for i in range(len(x)):
         overlap[x[i], y[i]] += 1
     return overlap
 
@@ -217,10 +135,7 @@ def _label_overlap_cupy(x, y):
     return overlap.get()
 
 # GPU-accelerated Numba CUDA Version
-@jit
 def _label_overlap_cuda(x, y):
-    from numba import cuda
-
     # Allocate overlap matrix on the device
     max_x = int(x.max()) + 1
     max_y = int(y.max()) + 1
